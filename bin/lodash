@@ -541,7 +541,8 @@
     'es6',
     'global',
     'node',
-    'npm'
+    'npm',
+    'providesModule'
   ];
 
   /** List of variables with complex assignments */
@@ -842,6 +843,7 @@
         isEs6 = state.isEs6,
         isNode = state.isNode,
         isNpm = state.isNpm,
+        isProvidesModule = state.isProvidesModule,
         objDepMap = state.objDepMap,
         outputPath = state.outputPath,
         varDepMap = state.varDepMap;
@@ -903,18 +905,18 @@
     };
 
     // prepare state
-    state.isAMD = state.isCommonJS = state.isNode = state.isNpm = false;
+    state.isAMD = state.isCommonJS = state.isNode = state.isNpm = state.isProvidesModule = false;
     state.plusFuncs = state.minusFuncs = empty;
 
-    if (isNpm) {
+    if (isNpm || isProvidesModule) {
       // exclude `_.noConflict` and "Chaining" methods
       identifiers = _.difference(identifiers, categoryMap.Chaining.concat('noConflict'));
     }
     // create modules for each identifier
     identifiers.forEach(function(identifier) {
       var isInternal = _.contains(internals, identifier),
-          moduleName = isNpm ? 'lodash.' + (isInternal ? '_' : '') + identifier.toLowerCase() : identifier,
-          modulePath = isNpm ? moduleName : getPath(identifier),
+          moduleName = isNpm || isProvidesModule ? 'lodash.' + (isInternal ? '_' : '') + identifier.toLowerCase() : identifier,
+          modulePath = isProvidesModule ? '.' : (isNpm ? moduleName : getPath(identifier)),
           iife = [];
 
       var deps = getDependencies(identifier, funcDepMap, true)
@@ -922,7 +924,7 @@
         .concat(varDepMap[identifier] || empty)
         .sort();
 
-      var depPaths = isNpm
+      var depPaths = isNpm || isProvidesModule
         ? deps.map(function(dep) { return 'lodash.' + (_.contains(internals, dep) ? '_' : '') + dep.toLowerCase(); })
         : getDepPaths(deps, modulePath);
 
@@ -960,7 +962,7 @@
 
       state.buildFuncs = state.includeFuncs = state.includeObjs = state.includeVars = empty;
       state.iife = iife.join('\n');
-      state.outputPath = path.join(outputPath, modulePath, (isNpm ? 'index' : identifier) + '.js');
+      state.outputPath = path.join(outputPath, modulePath, (isProvidesModule ? moduleName : (isNpm ? 'index' : identifier)) + '.js');
 
       var include = [identifier];
       if (_.contains(includeObjs, identifier)) {
@@ -974,6 +976,11 @@
         var source = data.source;
         if (!isAMD) {
           source = trimIndent(source);
+        }
+
+        // Add @providesModule moduleName
+        if (isProvidesModule) {
+          source = source.replace(' */', ' *\n * @providesModule ' + moduleName + '\n */');
         }
         data.source = source;
         buildCallback(data);
@@ -1015,7 +1022,7 @@
       });
     });
 
-    if (!isNpm) {
+    if (!isNpm && !isProvidesModule) {
       // create lodash module
       (function() {
         var categoryDeps = _.invoke(categories, 'toLowerCase'),
@@ -1392,7 +1399,7 @@
       '               “objects”, & “utilities”)',
       '',
       '  exports=..   Comma separated names of ways to export the `lodash` function.',
-      '               (i.e. “amd”, “commonjs”, “es6”, “global”, “node”, “npm”, & “none”)',
+      '               (i.e. “amd”, “commonjs”, “es6”, “global”, “node”, “npm”, “providesModule”, & “none”)',
       '',
       '  iife=..      Code to replace the IIFE that wraps Lo-Dash',
       '               (e.g. `lodash iife="!function(){%output%}()"`)',
@@ -1408,7 +1415,7 @@
       '  All commands except `backbone`, `legacy`, `mobile`, `modern`, & `underscore`',
       '  may be combined.',
       '',
-      '  The `exports` values “es6” & “npm” may only be used in conjunction with',
+      '  The `exports` values “es6”, “npm”, & “providesModule” may only be used in conjunction with',
       '  the `modularize` command.',
       '',
       '  Unless specified by `-o` or `--output` all files created are saved to the',
@@ -2860,7 +2867,7 @@
           return value.length ? value : result;
         }, isModularize
           ? ['amd']
-          : (isUnderscore ? ['commonjs', 'global', 'node'] : _.without(allExports, 'es6', 'npm'))
+          : (isUnderscore ? ['commonjs', 'global', 'node'] : _.without(allExports, 'es6', 'npm', 'providesModule'))
         );
         return isModularize ? _.first(result, 1) : result;
       }());
@@ -2899,6 +2906,7 @@
           isEs6 = _.contains(exportsOptions, 'es6'),
           isGlobal = _.contains(exportsOptions, 'global'),
           isNpm =  _.contains(exportsOptions, 'npm'),
+          isProvidesModule =  _.contains(exportsOptions, 'providesModule'),
           isNode = isNpm || _.contains(exportsOptions, 'node');
 
       // flag to specify a template build
@@ -3036,7 +3044,7 @@
         },
         'exports': {
           'entries': exportsOptions,
-          'validEntries': isModularize ? ['amd', 'commonjs', 'es6', 'node', 'npm'] : _.without(allExports, 'es6', 'npm')
+          'validEntries': isModularize ? ['amd', 'commonjs', 'es6', 'node', 'npm', 'providesModule'] : _.without(allExports, 'es6', 'npm', 'providesModule')
         },
         'include': {
           'entries': includeFuncs,
@@ -4481,6 +4489,7 @@
           'isModern': isModern,
           'isNode': isNode,
           'isNpm': isNpm,
+          'isProvidesModule': isProvidesModule,
           'isStdOut': isStdOut,
           'isStrict': isStrict,
           'isUnderscore': isUnderscore,
@@ -4713,7 +4722,7 @@
     var isCustom = !isModularize && (
       isLegacy || isMapped || isModern || isStrict || isUnderscore || outputPath ||
       /(?:category|exclude|exports|iife|include|minus|plus)=.*$/.test(options) ||
-      !_.isEqual(exportsOptions, ['amd', 'commonjs', 'global', 'node'])
+      !_.isEqual(exportsOptions, ['amd', 'commonjs', 'global', 'node', 'providesModule'])
     );
 
     // used as the basename of the output path
